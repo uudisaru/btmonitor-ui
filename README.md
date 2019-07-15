@@ -42,3 +42,12 @@ You don’t have to ever use `eject`. The curated feature set is suitable for sm
 You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
 
 To learn React, check out the [React documentation](https://reactjs.org/).
+
+## Resources
+
+### Proxying OSM tiles
+
+[MapProxy](https://wiki.openstreetmap.org/wiki/MapProxy)
+[TileCache](https://wiki.openstreetmap.org/wiki/TileCache)
+[Tile Proxy](https://wiki.openstreetmap.org/wiki/Tile_Proxy/squid)
+[Simple Nginx example](https://jperelli.com.ar/post/2017/12/17/how-to-cache-openstreetmap-tiles/)

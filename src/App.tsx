@@ -6,6 +6,7 @@ import 'antd/dist/antd.css';
 import './react-geo.css';
 import busIcon from './static/icons/Aiga_bus_134138.svg'
 
+import { format } from 'date-fns'
 import olFeature from 'ol/Feature';
 import olGeomPoint from 'ol/geom/Point';
 import OlMap from 'ol/Map';
@@ -14,9 +15,10 @@ import OlView from 'ol/View';
 import OlLayerGroup from 'ol/layer/Group';
 import OlLayerTile from 'ol/layer/Tile';
 import OlLayerVector from 'ol/layer/Vector';
+import Overlay from 'ol/Overlay';
 import OlSourceVector from 'ol/source/Vector';
 import OlSourceOsm from 'ol/source/OSM';
-import { Icon, Style } from 'ol/style.js';
+import { Icon, Style } from 'ol/style';
 import msgpack from "msgpack-lite";
 
 import { Drawer } from 'antd';
@@ -51,9 +53,11 @@ interface IState {
 }
 class App extends Component {
   private busIcon: any;
-  private markersLayer: any;
   private layerGroup: any;
+  private markersLayer: any;
   private map: any;
+  private overlay: any;
+  private overlayFor?: number;
   private ws = new WebSocket(URL);
 
   state: IState = {
@@ -91,6 +95,15 @@ class App extends Component {
       layers: [layer, this.layerGroup]
     });
 
+    this.busIcon = new Style({
+      image: new Icon(({
+        anchor: [0.5, 46],
+        anchorXUnits: 'fraction',
+        anchorYUnits: 'pixels',
+        scale: 0.05,
+        src: busIcon
+      }))
+    });
     this.map.on('postcompose', this.map.updateSize);
   }
 
@@ -112,6 +125,7 @@ class App extends Component {
       // automatically try to reconnect on connection loss
       this.ws = new WebSocket(URL);
     }
+    this.initOverlay();
   }
 
   toggleDrawer = () => {
@@ -124,6 +138,10 @@ class App extends Component {
         <MapComponent
           map={this.map}
         />
+        <div id="popup" className="ol-popup">
+          <a href="#" id="popup-closer" className="ol-popup-closer"></a>
+          <div id="popup-content"></div>
+        </div>
         <SimpleButton
           style={{ position: 'fixed', top: '30px', right: '30px' }}
           onClick={this.toggleDrawer}
@@ -144,10 +162,50 @@ class App extends Component {
             layerGroup={this.layerGroup}
             map={this.map}
           />
-          <span>Updated: {this.state.updated ? this.state.updated.toISOString() : ""}</span>
+          <span>Updated: {this.state.updated ? format(this.state.updated, "DD.MM.YYYY HH:mm:ss") : ""}</span>
         </Drawer>
       </div>
     );
+  }
+
+  private initOverlay() {
+    const container = document.getElementById('popup');
+    const closer = document.getElementById('popup-closer');
+
+    this.overlay = new Overlay({
+      element: container,
+      autoPan: true,
+      autoPanAnimation: {
+        duration: 250
+      }
+    });
+    this.map.addOverlay(this.overlay);
+
+    closer!.onclick = () => {
+      this.overlay.setPosition(undefined);
+      closer!.blur();
+      return false;
+    };
+
+    this.map.on('singleclick', (event: any) => {
+      const features = this.map.getFeaturesAtPixel(event.pixel, (layer: any) => layer.get("name") === 'Real-time bus locations');
+      if (features) {
+        const feature = features[0];
+        this.overlayPosition(feature);
+      } else {
+        this.resetOverlay();
+        closer!.blur();
+      }
+    });
+  }
+
+  private overlayPosition = (feature: any) => {
+    const content = document.getElementById('popup-content');
+    const updated = format(feature.get("updated"), "DD.MM.YYYY HH:mm:ss")
+    content!.innerHTML = `<b>Bus no. ${feature.get("name")}</b><br />Updated: ${updated}`;
+    const pixelCoords = feature.getGeometry().getCoordinates();
+    this.overlay.setPosition([pixelCoords[0], pixelCoords[1] + 5]);
+    this.overlayFor = feature.getId();
   }
 
   private readBlob = async (blob: Blob) => {
@@ -157,12 +215,21 @@ class App extends Component {
     console.debug("Updated, features", this.markersLayer.getSource().getFeatures().length)
   }
 
-  private updateMarker = (marker: any, positions: Map<number, IPositionUpdate>) => {
+  private resetOverlay = () => {
+    this.overlay.setPosition(undefined);
+    this.overlayFor = undefined;
+  }
+
+  private updateMarker = (marker: any, positions: Map<number, IPositionUpdate>, updateTime: Date) => {
     const vehicleId = marker.getId();
     const update = positions.get(vehicleId);
     if (update) {
       const position = fromLonLat([update.lon, update.lat]);
       marker.getGeometry().setCoordinates(position);
+      marker.set("updated", updateTime);
+      if (this.overlayFor === vehicleId) {
+        this.overlayPosition(marker);
+      }
     }
 
     return vehicleId;
@@ -170,6 +237,7 @@ class App extends Component {
 
   private updatePositions = (positionUpdates: IPositionUpdateList) => {
     const positions = new Map<number, IPositionUpdate>();
+    const updateTime = new Date();
     positionUpdates.positions.forEach(pos => {
       // Ignore unknown position
       if (!(pos.lat === 0 && pos.lon === 0)) {
@@ -179,7 +247,7 @@ class App extends Component {
 
     const features = this.markersLayer.getSource().getFeatures();
     features.forEach((marker: any) => {
-      positions.delete(this.updateMarker(marker, positions));
+      positions.delete(this.updateMarker(marker, positions, updateTime));
     });
 
     let markers: any = []
@@ -188,26 +256,19 @@ class App extends Component {
       const marker = new olFeature({
         geometry: new olGeomPoint(fromLonLat([update.lon, update.lat])),
         name: update.line,
+        updated: updateTime,
         vehicleId: update.id,
       });
       marker.set("vehicleId", update.id);
       marker.setId(update.id);
-      marker.setStyle(new Style({
-        image: new Icon(({
-          anchor: [0.5, 46],
-          anchorXUnits: 'fraction',
-          anchorYUnits: 'pixels',
-          scale: 0.05,
-          src: busIcon
-        }))
-      }));
+      marker.setStyle(this.busIcon);
       markers.push(marker);
     }
 
     if (markers.length > 0) {
       try {
         this.markersLayer.getSource().addFeatures(markers);
-        this.setState({ updated: new Date() })
+        this.setState({ updated: updateTime })
       } catch (e) {
         console.error(e);
         console.debug("Changes:", [...positions.values()], "features:", markers);

@@ -5,6 +5,18 @@ html, body, #root, .App, #map {
   width: 100%;
 }
 
+/* Apply current color to SVG */
+body {
+  fill: currentColor;
+}
+
+.drawer-title {
+  display: flex;
+}
+.drawer-title > span {
+  margin-right: 10px;
+}
+
 .ol-popup {
   position: absolute;
   background-color: white;

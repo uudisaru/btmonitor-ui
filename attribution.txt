@@ -1,2 +1,4 @@
 AIGA Symbol Signs
 https://www.iconfinder.com/iconsets/aiga-symbol-signs
+Google Material Design icons
+https://material.io/tools/icons/

@@ -32,10 +32,10 @@ import { buildSvg } from './icon';
 import { updateTime } from './times';
 import SvgBaselineCloudDone24Px from './icons/BaselineCloudDone24Px';
 import SvgBaselineCloudOff24Px from './icons/BaselineCloudOff24Px';
+import { wsUrl } from './urls';
 
 const INITIAL_RETRY_INTERVAL = 1000;
 const MAX_RETRY_INTERVAL = 1000 * 300; // 5 minutes
-const WS_URL = 'ws://ufo.local:8000/feed';
 
 type OlBaseLayer = typeof olBaseLayer;
 type OlFeature = typeof olFeature;
@@ -74,7 +74,7 @@ class App extends Component<{}, AppState> {
   private overlayFor?: number;
   private retryInterval = INITIAL_RETRY_INTERVAL;
   private view: OlView;
-  private ws = new WebSocket(WS_URL);
+  private ws!: WebSocket;
 
   public state: AppState = {
     connected: false,
@@ -122,10 +122,10 @@ class App extends Component<{}, AppState> {
     });
 
     this.map.on('postcompose', this.map.updateSize);
+    this.connect();
   }
 
   public componentDidMount(): void {
-    this.initWs();
     this.initOverlay();
   }
 
@@ -134,7 +134,6 @@ class App extends Component<{}, AppState> {
       <div className="App">
         <MapComponent map={this.map} />
         <div id="popup" className="ol-popup">
-          <a href="#" id="popup-closer" className="ol-popup-closer"></a>
           <div id="popup-content"></div>
         </div>
         <SimpleButton
@@ -172,13 +171,12 @@ class App extends Component<{}, AppState> {
   };
 
   private connect = (): void => {
-    this.ws = new WebSocket(WS_URL);
+    this.ws = new WebSocket(wsUrl());
     this.initWs();
   };
 
   private initOverlay(): void {
     const container = document.getElementById('popup');
-    const closer = document.getElementById('popup-closer');
 
     this.overlay = new olOverlay({
       element: container,
@@ -188,29 +186,19 @@ class App extends Component<{}, AppState> {
       }
     });
     this.map.addOverlay(this.overlay);
-
-    if (closer) {
-      closer.onclick = (): boolean => {
-        this.overlay.setPosition(undefined);
-        closer.blur();
-        return false;
-      };
-
-      this.map.on('singleclick', (event: OlMapBrowserEvent): void => {
-        const features = this.map.getFeaturesAtPixel(
-          event.pixel,
-          (layer: OlBaseLayer): boolean =>
-            layer.get('name') === 'Real-time bus locations'
-        );
-        if (features) {
-          const feature = features[0];
-          this.overlayPosition(feature);
-        } else {
-          this.resetOverlay();
-          closer.blur();
-        }
-      });
-    }
+    this.map.on('singleclick', (event: OlMapBrowserEvent): void => {
+      const features = this.map.getFeaturesAtPixel(
+        event.pixel,
+        (layer: OlBaseLayer): boolean =>
+          layer.get('name') === 'Real-time bus locations'
+      );
+      if (features) {
+        const feature = features[0];
+        this.overlayPosition(feature);
+      } else {
+        this.resetOverlay();
+      }
+    });
   }
 
   private initWs = (): void => {
@@ -331,7 +319,7 @@ class App extends Component<{}, AppState> {
   private updateZoom = (currZoom: number, newZoom: number): void => {
     const currScale = this.zoomScale(currZoom);
     const newScale = this.zoomScale(newZoom);
-    if (currScale != newScale) {
+    if (currScale !== newScale) {
       const features = this.markersLayer.getSource().getFeatures();
       features.forEach((marker: OlFeature): void => {
         const image = marker.getStyle().getImage();

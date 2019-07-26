@@ -57,9 +57,17 @@ interface PositionUpdate {
 }
 
 interface PositionUpdateList {
+  type: 'INI' | 'POS';
   area: string;
   positions: PositionUpdate[];
 }
+
+interface TrackExpiry {
+  type: 'EXP';
+  area: string;
+  expired: number[];
+}
+
 
 interface AppState {
   connected: boolean;
@@ -175,6 +183,24 @@ class App extends Component<{}, AppState> {
     this.initWs();
   };
 
+  private clearPositions(): void {
+    this.markersLayer.getSource().clear();
+  }
+
+  private expireTracks(expired: TrackExpiry): void {
+    const removed = new Set(expired.expired);
+    //const removedFeatures: OlFeature[] = [];
+    const features = this.markersLayer.getSource().getFeatures();
+    const removedFeatures = features.filter((marker: OlFeature): boolean =>
+      removed.has(marker.getId())
+    );
+
+    console.debug('Expire', removedFeatures.length, 'tracks');
+    removedFeatures.forEach((marker: OlFeature): void =>
+      this.markersLayer.getSource().removeFeature(marker)
+    );
+  }
+
   private initOverlay(): void {
     const container = document.getElementById('popup');
 
@@ -229,13 +255,39 @@ class App extends Component<{}, AppState> {
       )}</b><br />${updateTime(feature.get('updated'))}`;
     }
     const pixelCoords = feature.getGeometry().getCoordinates();
-    this.overlay.setPosition([pixelCoords[0], pixelCoords[1] + 55]);
+    const offset = this.overlayOffset(this.view.getZoom());
+    this.overlay.setPosition([pixelCoords[0], pixelCoords[1] + offset]);
     this.overlayFor = feature.getId();
+  };
+
+  private overlayOffset = (zoom: number): number => {
+    let offset = 55;
+    if (zoom > 20) {
+      offset = 4;
+    } else if (zoom > 19) {
+      offset = 7;
+    } else if (zoom > 18) {
+      offset = 12;
+    } else if (zoom > 17) {
+      offset = 18;
+    } else if (zoom > 16) {
+      offset = 37;
+    }
+
+    return offset;
   };
 
   private readBlob = async (blob: Blob): Promise<void> => {
     const arrayBuffer: ArrayBuffer = await new Response(blob).arrayBuffer();
-    this.updatePositions(msgpack.decode(new Uint8Array(arrayBuffer)));
+    const message = msgpack.decode(new Uint8Array(arrayBuffer));
+    if (message.type === 'INI') {
+      this.clearPositions();
+    }
+    if (message.type === 'POS' || message.type === 'INI') {
+      this.updatePositions(message);
+    } else if (message.type === 'EXP') {
+      this.expireTracks(message);
+    }
   };
 
   private renderDrawerTitle = (): JSX.Element => {
@@ -272,6 +324,9 @@ class App extends Component<{}, AppState> {
       const position = fromLonLat([update.lon, update.lat]);
       marker.getGeometry().setCoordinates(position);
       marker.set('updated', updateTime);
+      if (update.line !== marker.get('name')) {
+        marker.setStyle(this.busIcon(update.line));
+      }
       if (this.overlayFor === vehicleId) {
         this.overlayPosition(marker);
       }
